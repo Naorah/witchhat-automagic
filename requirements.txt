@@ -1,0 +1,11 @@
+numpy==2.2.6
+opencv-python-headless==4.13.0.92
+pillow==12.2.0
+pynput==1.8.2
+PyQt6==6.11.0
+PyQt6-Qt6==6.11.1
+PyQt6_sip==13.11.1
+scipy==1.15.3
+six==1.17.0
+svgpathtools==1.7.2
+svgwrite==1.4.3
