@@ -26,6 +26,7 @@ from src.mouse_drawer import (
     SHAKE_DEFAULT_PCT,
     SHAKE_MAX_PCT,
     SHAKE_MIN_PCT,
+    DrawPacing,
     DrawWorker,
     shake_amplitude_from_percent,
 )
@@ -41,6 +42,15 @@ SCALE_MAX_PCT = 500
 DEFAULT_SCALE_PCT = 100
 RANDOM_SCALE_MIN_PCT = 200
 RANDOM_SCALE_MAX_PCT = 400
+
+# Much faster than global TURBO_PLUS_PACING — fast sample maker only.
+FAST_SAMPLE_TURBO_PLUS_PACING = DrawPacing(
+    point_delay_s=0.00005,
+    stroke_delay_s=0.0,
+    segment_px=16.0,
+    press_settle_s=0.0,
+    release_settle_s=0.0,
+)
 
 
 class FastSamplePanel(QWidget):
@@ -148,8 +158,8 @@ class FastSamplePanel(QWidget):
 
         self._turbo_plus_check = QCheckBox("Speed ++ (experimental)")
         self._turbo_plus_check.setToolTip(
-            "Accelerated turbo: ~0.7 ms/point (vs ~1 ms in base turbo). "
-            "Stays above zero so the game detects the stroke."
+            "Ultra-fast draw: ~0.05 ms/point, 16 px steps, no stroke pause "
+            "(vs ~1 ms/point in base turbo). May be too fast for some games."
         )
         options_row.addWidget(self._turbo_plus_check)
 
@@ -567,7 +577,8 @@ class FastSamplePanel(QWidget):
         self._worker = DrawWorker(plan)
         self._worker.cast_countdown = False
         self._worker.set_point_delay(0.0)
-        self._worker.set_turbo_plus(self._turbo_plus_check.isChecked())
+        if self._turbo_plus_check.isChecked():
+            self._worker.set_pacing(FAST_SAMPLE_TURBO_PLUS_PACING)
         self._worker.set_shake_amplitude(self._shake_amplitude_px(fresh_random=True))
         self._worker.progress.connect(self._status_label.setText)
         self._worker.draw_progress.connect(self._on_draw_progress)
