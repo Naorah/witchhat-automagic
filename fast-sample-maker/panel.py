@@ -143,12 +143,24 @@ class FastSamplePanel(QWidget):
 
         root.addLayout(form)
 
+        options_row = QHBoxLayout()
+        options_row.setSpacing(16)
+
         self._turbo_plus_check = QCheckBox("Speed ++ (experimental)")
         self._turbo_plus_check.setToolTip(
             "Accelerated turbo: ~0.7 ms/point (vs ~1 ms in base turbo). "
             "Stays above zero so the game detects the stroke."
         )
-        root.addWidget(self._turbo_plus_check)
+        options_row.addWidget(self._turbo_plus_check)
+
+        self._always_on_top_check = QCheckBox("Always on top")
+        self._always_on_top_check.setToolTip(
+            "Keep this window above other applications"
+        )
+        self._always_on_top_check.toggled.connect(self._on_always_on_top_toggled)
+        options_row.addWidget(self._always_on_top_check)
+        options_row.addStretch()
+        root.addLayout(options_row)
 
         shake_row = QWidget()
         shake_layout = QHBoxLayout(shake_row)
@@ -361,6 +373,17 @@ class FastSamplePanel(QWidget):
         return shake_amplitude_from_percent(
             self._effective_shake_pct(fresh_random=fresh_random)
         )
+
+    def _on_always_on_top_toggled(self, enabled: bool) -> None:
+        """Toggle ``WindowStaysOnTopHint`` on the host window."""
+        window = self.window()
+        flags = window.windowFlags()
+        if enabled:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        else:
+            flags &= ~Qt.WindowType.WindowStaysOnTopHint
+        window.setWindowFlags(flags)
+        window.show()
 
     def _on_random_size_toggled(self, enabled: bool) -> None:
         """Enable or disable manual size when random size is toggled."""
