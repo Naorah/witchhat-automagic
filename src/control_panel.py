@@ -39,7 +39,7 @@ from .mouse_drawer import (
 )
 from .overlay_window import OverlayWindow
 from .spell_composer import compose_spell
-from .ui.cast_key_filter import enable_cast_key_on_spinboxes
+from .ui.global_cast_hotkey import GlobalCastHotkey
 from .ui.sign_preview import populate_sign_combo
 from .ui.spin_input import SpinInput
 from .ui.theme import BG_ELEVATED
@@ -230,9 +230,8 @@ class ControlPanel(QWidget):
         self._escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         self._escape_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._escape_shortcut.activated.connect(self._on_escape_cancel)
-        self._cast_shortcut = QShortcut(QKeySequence("C"), self)
-        self._cast_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
-        self._cast_shortcut.activated.connect(self._cast)
+        self._global_cast = GlobalCastHotkey(self)
+        self._global_cast.triggered.connect(self._cast)
         self._overlay.center_moved.connect(self._on_overlay_moved)
         self._overlay.diameter_changed.connect(self._on_diameter_changed)
         self._overlay.rotation_changed.connect(self._on_overlay_rotation_changed)
@@ -476,9 +475,11 @@ class ControlPanel(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
-        self.cast_btn = QPushButton("Cast spell (C)")
+        self.cast_btn = QPushButton("Cast spell (Ctrl+Q)")
         self.cast_btn.setObjectName("PrimaryButton")
-        self.cast_btn.setToolTip("Start drawing the spell (C)")
+        self.cast_btn.setToolTip(
+            "Start drawing the spell (Ctrl+Q, works globally)"
+        )
         self.cast_btn.clicked.connect(self._cast)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setObjectName("GhostButton")
@@ -663,8 +664,6 @@ class ControlPanel(QWidget):
             widget.inward_radio.toggled.connect(self._refresh_overlay_if_visible)
             widget.rotation_spin.valueChanged.connect(self._refresh_overlay_if_visible)
             widget.scale_spin.valueChanged.connect(self._refresh_overlay_if_visible)
-
-        enable_cast_key_on_spinboxes(self, self._cast)
 
     def _apply_rotation_to_all_signs(self) -> None:
         """
@@ -857,7 +856,7 @@ class ControlPanel(QWidget):
         self._worker.error.connect(self._on_draw_error)
 
         self.cast_btn.setEnabled(False)
-        self._cast_shortcut.setEnabled(False)
+        self._global_cast.set_enabled(False)
         self.overlay_toggle.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.status_label.setText("Preparing spell…")
@@ -933,7 +932,7 @@ class ControlPanel(QWidget):
         None
         """
         self.cast_btn.setEnabled(True)
-        self._cast_shortcut.setEnabled(True)
+        self._global_cast.set_enabled(True)
         self.overlay_toggle.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self._worker = None

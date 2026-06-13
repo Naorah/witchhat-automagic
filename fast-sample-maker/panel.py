@@ -30,7 +30,7 @@ from src.mouse_drawer import (
     DrawWorker,
     shake_amplitude_from_percent,
 )
-from src.ui.cast_key_filter import enable_cast_key_on_spinboxes
+from src.ui.global_cast_hotkey import GlobalCastHotkey
 from src.ui.spin_input import SpinInput
 
 from asset_grid import AssetGrid
@@ -66,7 +66,8 @@ class FastSamplePanel(QWidget):
 
         self._build_ui()
         self._wire_signals()
-        enable_cast_key_on_spinboxes(self, self._cast)
+        self._global_cast = GlobalCastHotkey(self)
+        self._global_cast.triggered.connect(self._cast)
 
     def _build_ui(self) -> None:
         """Lay out asset grid, settings form, and action buttons."""
@@ -199,9 +200,9 @@ class FastSamplePanel(QWidget):
         actions.setSpacing(8)
         self._preview_btn = QPushButton("Show overlay")
         self._preview_btn.setObjectName("GhostButton")
-        self._cast_btn = QPushButton("Cast (C)")
+        self._cast_btn = QPushButton("Cast (Ctrl+Q)")
         self._cast_btn.setObjectName("PrimaryButton")
-        self._cast_btn.setToolTip("Start drawing (C)")
+        self._cast_btn.setToolTip("Start drawing (Ctrl+Q, works globally)")
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setEnabled(False)
         actions.addWidget(self._preview_btn)
@@ -235,10 +236,6 @@ class FastSamplePanel(QWidget):
         self._cast_btn.clicked.connect(self._cast)
         self._cancel_btn.clicked.connect(self._cancel_draw)
         self._overlay.center_moved.connect(self._on_overlay_moved)
-
-        self._cast_shortcut = QShortcut(QKeySequence("C"), self)
-        self._cast_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
-        self._cast_shortcut.activated.connect(self._cast)
 
         QShortcut(QKeySequence("P"), self).activated.connect(self._toggle_preview)
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self).activated.connect(
@@ -582,7 +579,7 @@ class FastSamplePanel(QWidget):
 
         kind_label = "Sigil" if config.kind == "sigil" else "Sign"
         self._cast_btn.setEnabled(False)
-        self._cast_shortcut.setEnabled(False)
+        self._global_cast.set_enabled(False)
         self._preview_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
         self._grid.setEnabled(False)
@@ -611,7 +608,7 @@ class FastSamplePanel(QWidget):
     def _reset_draw_ui(self) -> None:
         """Re-enable controls after a draw finishes, is cancelled, or errors."""
         self._cast_btn.setEnabled(True)
-        self._cast_shortcut.setEnabled(True)
+        self._global_cast.set_enabled(True)
         self._preview_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._grid.setEnabled(True)
