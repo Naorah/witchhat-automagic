@@ -33,6 +33,7 @@ from .mouse_drawer import (
     SHAKE_DEFAULT_PCT,
     SHAKE_MAX_PCT,
     SHAKE_MIN_PCT,
+    ULTRA_TURBO_PLUS_PACING,
     DrawWorker,
     shake_amplitude_from_percent,
 )
@@ -490,13 +491,21 @@ class ControlPanel(QWidget):
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(16)
         self.dry_run_check = QCheckBox("Debug mode (no mouse)")
+        self.turbo_plus_check = QCheckBox("Speed ++ (experimental)")
+        self.turbo_plus_check.setToolTip(
+            "Ultra-fast draw at max speed: ~0.05 ms/point, 16 px steps, "
+            "no stroke pause (vs ~1 ms/point in base turbo). "
+            "May be too fast for some games."
+        )
         self.always_on_top_check = QCheckBox("Always on top")
         self.always_on_top_check.setToolTip("Keep this window above other applications")
         self.always_on_top_check.toggled.connect(self._on_always_on_top_toggled)
         bottom_row.addWidget(self.dry_run_check)
+        bottom_row.addWidget(self.turbo_plus_check)
         bottom_row.addWidget(self.always_on_top_check)
         bottom_row.addStretch(1)
         root.addLayout(bottom_row)
+        self._update_turbo_plus_enabled()
 
     def _on_always_on_top_toggled(self, enabled: bool) -> None:
         """
@@ -541,6 +550,13 @@ class ControlPanel(QWidget):
         self.speed_spin.setValue(delay_s)
         self.speed_spin.blockSignals(False)
         self.speed_slider.blockSignals(False)
+        self._update_turbo_plus_enabled()
+
+    def _update_turbo_plus_enabled(self) -> None:
+        """Enable Speed ++ only when draw speed is at max (turbo)."""
+        if not hasattr(self, "turbo_plus_check"):
+            return
+        self.turbo_plus_check.setEnabled(self.speed_spin.value() <= 0.0)
 
     def _on_speed_slider_changed(self, slider_value: int) -> None:
         """
@@ -559,6 +575,7 @@ class ControlPanel(QWidget):
         self.speed_spin.blockSignals(True)
         self.speed_spin.setValue(delay_s)
         self.speed_spin.blockSignals(False)
+        self._update_turbo_plus_enabled()
 
     def _on_shake_toggled(self, enabled: bool) -> None:
         self.shake_spin.setEnabled(enabled)
@@ -585,6 +602,7 @@ class ControlPanel(QWidget):
         self.speed_slider.blockSignals(True)
         self.speed_slider.setValue(slider_value)
         self.speed_slider.blockSignals(False)
+        self._update_turbo_plus_enabled()
 
     def _on_draw_circle_toggled(self, enabled: bool) -> None:
         """
@@ -830,6 +848,8 @@ class ControlPanel(QWidget):
         self._worker.dry_run = self.dry_run_check.isChecked()
         self._worker.cast_countdown = config.cast_countdown
         self._worker.set_point_delay(self.speed_spin.value())
+        if self.turbo_plus_check.isChecked() and self.speed_spin.value() <= 0.0:
+            self._worker.set_pacing(ULTRA_TURBO_PLUS_PACING)
         self._worker.set_shake_amplitude(self._shake_amplitude_px())
         self._worker.progress.connect(self.status_label.setText)
         self._worker.finished_ok.connect(self._on_draw_finished)

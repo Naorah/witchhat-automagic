@@ -26,7 +26,7 @@ from src.mouse_drawer import (
     SHAKE_DEFAULT_PCT,
     SHAKE_MAX_PCT,
     SHAKE_MIN_PCT,
-    DrawPacing,
+    ULTRA_TURBO_PLUS_PACING,
     DrawWorker,
     shake_amplitude_from_percent,
 )
@@ -42,15 +42,6 @@ SCALE_MAX_PCT = 500
 DEFAULT_SCALE_PCT = 100
 RANDOM_SCALE_MIN_PCT = 200
 RANDOM_SCALE_MAX_PCT = 400
-
-# Much faster than global TURBO_PLUS_PACING — fast sample maker only.
-FAST_SAMPLE_TURBO_PLUS_PACING = DrawPacing(
-    point_delay_s=0.00005,
-    stroke_delay_s=0.0,
-    segment_px=16.0,
-    press_settle_s=0.0,
-    release_settle_s=0.0,
-)
 
 
 class FastSamplePanel(QWidget):
@@ -578,7 +569,7 @@ class FastSamplePanel(QWidget):
         self._worker.cast_countdown = False
         self._worker.set_point_delay(0.0)
         if self._turbo_plus_check.isChecked():
-            self._worker.set_pacing(FAST_SAMPLE_TURBO_PLUS_PACING)
+            self._worker.set_pacing(ULTRA_TURBO_PLUS_PACING)
         self._worker.set_shake_amplitude(self._shake_amplitude_px(fresh_random=True))
         self._worker.progress.connect(self._status_label.setText)
         self._worker.draw_progress.connect(self._on_draw_progress)

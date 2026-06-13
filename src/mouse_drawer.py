@@ -66,6 +66,14 @@ TURBO_PLUS_PACING = DrawPacing(
     release_settle_s=0.002,
 )
 
+ULTRA_TURBO_PLUS_PACING = DrawPacing(
+    point_delay_s=0.00005,
+    stroke_delay_s=0.0,
+    segment_px=16.0,
+    press_settle_s=0.0,
+    release_settle_s=0.0,
+)
+
 
 def _interpolate_stroke(stroke: Stroke, min_step: float = MIN_SEGMENT_PX) -> Stroke:
     """
