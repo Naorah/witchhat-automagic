@@ -30,6 +30,7 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QShortcut,
+    QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -70,6 +71,9 @@ Edge = Tuple[int, int]
 VIEWBOX = 100.0
 HIT_RADIUS = 10.0
 DELETE_HIT_RADIUS = 14.0
+ZOOM_MIN = 0.5
+ZOOM_MAX = 16.0
+ZOOM_STEP = 1.15
 LIST_COLOR_ANNOTATED = QColor(LIST_ANNOTATED)
 LIST_COLOR_PENDING = QColor(LIST_PENDING)
 # 13px font (~16px line) + 4px vertical padding × 2
@@ -144,6 +148,7 @@ class AnnotationCanvas(QWidget):
 
     about_to_change = pyqtSignal()
     graph_changed = pyqtSignal()
+    view_changed = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """
@@ -171,6 +176,23 @@ class AnnotationCanvas(QWidget):
         self._hover_index: Optional[int] = None
         self._drag_index: Optional[int] = None
         self._image_rect = self.rect()
+        self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
+        self._panning = False
+        self._pan_start = QPointF()
+        self._pan_at_start = QPointF()
+        self._space_pressed = False
+
+    def zoom_percent(self) -> int:
+        """Return the current zoom level as a percentage of fit-to-window."""
+        return int(round(self._zoom * 100))
+
+    def reset_view(self) -> None:
+        """Reset zoom and pan to the default fit-to-window view."""
+        self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
+        self.update()
+        self.view_changed.emit()
 
     def set_image(self, path: Path) -> None:
         """
@@ -186,7 +208,7 @@ class AnnotationCanvas(QWidget):
         None
         """
         self._pixmap = QPixmap(str(path))
-        self.update()
+        self.reset_view()
 
     def set_graph(self, graph: PointGraph) -> None:
         """
@@ -234,7 +256,9 @@ class AnnotationCanvas(QWidget):
         self._mode = mode
         self._link_start = None
         self._drag_index = None
-        if mode == "move":
+        if self._space_pressed or self._panning:
+            self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+        elif mode == "move":
             self.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
         elif mode == "delete":
             self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
@@ -277,20 +301,36 @@ class AnnotationCanvas(QWidget):
         """
         self.set_graph(graph)
 
+    def _fit_scale(self) -> float:
+        if not self._pixmap or self._pixmap.isNull():
+            margin = 20.0
+            w = max(1.0, self.width() - 2 * margin)
+            h = max(1.0, self.height() - 2 * margin)
+            return min(w, h) / VIEWBOX * 0.92
+
+        pw = float(self._pixmap.width())
+        ph = float(self._pixmap.height())
+        return min(self.width() / pw, self.height() / ph) * 0.92
+
     def _content_rect(self) -> Tuple[float, float, float, float]:
         if not self._pixmap or self._pixmap.isNull():
             margin = 20.0
             w = max(1.0, self.width() - 2 * margin)
             h = max(1.0, self.height() - 2 * margin)
-            return margin, margin, w, h
+            scale = self._fit_scale() * self._zoom
+            draw_w = VIEWBOX * scale
+            draw_h = VIEWBOX * scale
+        else:
+            pw = float(self._pixmap.width())
+            ph = float(self._pixmap.height())
+            scale = self._fit_scale() * self._zoom
+            draw_w = pw * scale
+            draw_h = ph * scale
 
-        pw = float(self._pixmap.width())
-        ph = float(self._pixmap.height())
-        scale = min(self.width() / pw, self.height() / ph) * 0.92
-        draw_w = pw * scale
-        draw_h = ph * scale
-        x = (self.width() - draw_w) / 2
-        y = (self.height() - draw_h) / 2
+        cx = self.width() / 2 + self._pan.x()
+        cy = self.height() / 2 + self._pan.y()
+        x = cx - draw_w / 2
+        y = cy - draw_h / 2
         return x, y, draw_w, draw_h
 
     def _viewbox_to_widget(self, point: Point) -> QPointF:
@@ -299,11 +339,46 @@ class AnnotationCanvas(QWidget):
         wy = y + (point[1] / VIEWBOX) * h
         return QPointF(wx, wy)
 
-    def _widget_to_viewbox(self, wx: float, wy: float) -> Point:
+    def _widget_to_viewbox(
+        self, wx: float, wy: float, *, clamp: bool = True
+    ) -> Point:
         x, y, w, h = self._content_rect()
-        vx = max(0.0, min(VIEWBOX, (wx - x) / w * VIEWBOX))
-        vy = max(0.0, min(VIEWBOX, (wy - y) / h * VIEWBOX))
+        if w <= 0 or h <= 0:
+            return (0.0, 0.0)
+        vx = (wx - x) / w * VIEWBOX
+        vy = (wy - y) / h * VIEWBOX
+        if clamp:
+            vx = max(0.0, min(VIEWBOX, vx))
+            vy = max(0.0, min(VIEWBOX, vy))
         return (vx, vy)
+
+    def _zoom_at(self, factor: float, anchor: QPointF) -> None:
+        old_zoom = self._zoom
+        new_zoom = max(ZOOM_MIN, min(ZOOM_MAX, self._zoom * factor))
+        if math.isclose(new_zoom, old_zoom):
+            return
+
+        vx, vy = self._widget_to_viewbox(anchor.x(), anchor.y(), clamp=False)
+        self._zoom = new_zoom
+        x, y, w, h = self._content_rect()
+        wx = x + (vx / VIEWBOX) * w
+        wy = y + (vy / VIEWBOX) * h
+        self._pan += QPointF(anchor.x() - wx, anchor.y() - wy)
+        self.update()
+        self.view_changed.emit()
+
+    def _start_pan(self, pos: QPointF) -> None:
+        self._panning = True
+        self._pan_start = pos
+        self._pan_at_start = QPointF(self._pan)
+        self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+
+    def _stop_pan(self) -> None:
+        self._panning = False
+        if self._space_pressed:
+            self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+        else:
+            self.set_mode(self._mode)
 
     def _hit_radius(self) -> float:
         """Pick radius for vertex hit-testing (larger in delete mode)."""
@@ -419,7 +494,43 @@ class AnnotationCanvas(QWidget):
             return False
         return self.delete_vertex(self._hover_index)
 
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+        factor = ZOOM_STEP if delta > 0 else 1.0 / ZOOM_STEP
+        self._zoom_at(factor, event.position())
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            self._space_pressed = True
+            if not self._panning:
+                self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            self._space_pressed = False
+            if not self._panning:
+                self.set_mode(self._mode)
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
     def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._start_pan(event.position())
+            return
+
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._space_pressed
+        ):
+            self._start_pan(event.position())
+            return
+
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
@@ -462,6 +573,12 @@ class AnnotationCanvas(QWidget):
     def mouseMoveEvent(self, event) -> None:
         wx, wy = event.position().x(), event.position().y()
 
+        if self._panning:
+            delta = event.position() - self._pan_start
+            self._pan = self._pan_at_start + delta
+            self.update()
+            return
+
         if self._mode == "move" and self._drag_index is not None:
             self._vertices[self._drag_index] = self._widget_to_viewbox(wx, wy)
             self.graph_changed.emit()
@@ -475,6 +592,13 @@ class AnnotationCanvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event) -> None:
+        if event.button() in (
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.MiddleButton,
+        ) and self._panning:
+            self._stop_pan()
+            return
+
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_index = None
             self.update()
@@ -594,6 +718,7 @@ class AnnotatorWindow(QWidget):
 
         self._hint = QLabel(
             "Points (P) · Links (L) · Move (M) · Delete point (D) · "
+            "Wheel = zoom · Middle-drag or Space+drag = pan · 0 = reset view · "
             "Delete/Backspace removes hovered point · Enter = validate"
         )
         self._hint.setObjectName("HintLabel")
@@ -624,6 +749,7 @@ class AnnotatorWindow(QWidget):
         self._canvas = AnnotationCanvas()
         self._canvas.about_to_change.connect(self._snapshot)
         self._canvas.graph_changed.connect(self._update_status)
+        self._canvas.view_changed.connect(self._update_status)
         self._active_mode = "point"
         right.addWidget(self._canvas, stretch=1)
 
@@ -695,6 +821,7 @@ class AnnotatorWindow(QWidget):
         QShortcut(QKeySequence(Qt.Key.Key_Left), self, activated=self._prev_asset)
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self, activated=self._delete_hovered)
         QShortcut(QKeySequence(Qt.Key.Key_Backspace), self, activated=self._delete_hovered)
+        QShortcut(QKeySequence("0"), self, activated=self._canvas.reset_view)
 
         self._load_current()
         self._set_mode("point")
@@ -744,7 +871,7 @@ class AnnotatorWindow(QWidget):
 
     def _update_status(self) -> None:
         v, e = self._vertices_edges_count()
-        text = f"Points: {v} · Links: {e}"
+        text = f"Points: {v} · Links: {e} · Zoom: {self._canvas.zoom_percent()}%"
         if self._active_mode == "delete":
             hover = self._canvas.hovered_vertex()
             if hover is not None:
@@ -815,6 +942,7 @@ class AnnotatorWindow(QWidget):
         else:
             self._canvas.clear_graph()
 
+        self._canvas.setFocus()
         self._update_status()
 
     def _validate(self) -> None:
